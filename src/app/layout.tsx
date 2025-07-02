@@ -3,9 +3,12 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { useState, ReactElement, isValidElement, cloneElement, createContext, useContext, useEffect } from "react";
-import { supabase } from '../../lib/supabase';
-import { FiLogIn } from 'react-icons/fi';
+import { supabase, updateUserProfile, upsertUserProfile, getUserProfile, deleteUserInteractions, deleteSmartPromptEmbeddings, deleteSmartDiscoverySessions, deleteSmartDiscoveryProfile, deletePrivacyConsents, deleteUserProfile } from '../../lib/supabase';
+import { FiLogIn, FiUser } from 'react-icons/fi';
 import AuthModal from './components/AuthModal';
+import SmartModeConsentModal from './components/SmartModeConsentModal';
+import ProfileDropdown from './components/ProfileDropdown';
+import DeleteDataModal from './components/DeleteDataModal';
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -37,15 +40,35 @@ export default function RootLayout({
   const [email, setEmail] = useState('');
   const [authError, setAuthError] = useState('');
   const [authModalLoading, setAuthModalLoading] = useState(false);
+  const [showSmartConsent, setShowSmartConsent] = useState(false);
+  const [smartConsentLoading, setSmartConsentLoading] = useState(false);
+  const [pendingSmartMode, setPendingSmartMode] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+  const [smartModeEnabled, setSmartModeEnabled] = useState<boolean | null>(null);
 
   useEffect(() => {
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setUser(session?.user ?? null);
       setAuthLoading(false);
+      if (session?.user) {
+        await updateUserProfile(session.user.id, {
+          email: session.user.email,
+          last_login_at: new Date().toISOString(),
+        });
+      }
     });
-    supabase.auth.getUser().then(({ data }) => {
+    supabase.auth.getUser().then(async ({ data }) => {
       setUser(data.user ?? null);
       setAuthLoading(false);
+      if (data.user) {
+        await updateUserProfile(data.user.id, {
+          email: data.user.email,
+          last_login_at: new Date().toISOString(),
+        });
+      }
     });
     return () => { listener?.subscription.unsubscribe(); };
   }, []);
@@ -57,6 +80,25 @@ export default function RootLayout({
     return () => window.removeEventListener('open-login-modal', handler);
   }, []);
 
+  // Fetch user profile and consent state on login
+  useEffect(() => {
+    if (!user) {
+      setSmartModeEnabled(null);
+      return;
+    }
+    getUserProfile(user.id).then(({ data }) => {
+      setSmartModeEnabled(data?.smart_mode_enabled ?? false);
+    });
+  }, [user]);
+
+  // After login, if Smart Mode was pending, show consent modal
+  useEffect(() => {
+    if (user && pendingSmartMode) {
+      setShowSmartConsent(true);
+      setPendingSmartMode(false);
+    }
+  }, [user, pendingSmartMode]);
+
   async function onSendMagicLink() {
     setAuthError('');
     setAuthModalLoading(true);
@@ -65,6 +107,67 @@ export default function RootLayout({
     else setAuthError('Check your email for a magic link!');
     setAuthModalLoading(false);
   }
+
+  // Handler for Smart Mode toggle
+  async function handleModeChange(newMode: 'Fresh' | 'Smart') {
+    if (newMode === 'Smart') {
+      if (!user) {
+        setPendingSmartMode(true);
+        setShowLogin(true);
+        return;
+      }
+      // Check consent
+      if (smartModeEnabled) {
+        setMode('Smart');
+      } else {
+        setShowSmartConsent(true);
+      }
+    } else {
+      setMode('Fresh');
+    }
+  }
+
+  // Handler for enabling Smart Mode after consent
+  async function handleEnableSmartMode() {
+    if (!user) return;
+    setSmartConsentLoading(true);
+    try {
+      const now = new Date().toISOString();
+      const consentToken = Math.random().toString(36).substring(2, 15);
+      await upsertUserProfile({
+        id: user.id,
+        smart_mode_enabled: true,
+        smart_mode_consent_token: consentToken,
+        smart_mode_enabled_at: now,
+      });
+      await supabase.from('privacy_consents').upsert({
+        user_id: user.id,
+        consent_type: 'smart_mode',
+        consent_given: true,
+        consent_token: consentToken,
+        consent_method: 'modal',
+        legal_basis: 'explicit_consent',
+        granted_at: now,
+        created_at: now,
+        updated_at: now,
+      }, { onConflict: 'user_id,consent_type' });
+      setSmartModeEnabled(true);
+      setMode('Smart');
+    } catch (err) {
+      // Optionally show error to user
+    } finally {
+      setSmartConsentLoading(false);
+      setShowSmartConsent(false);
+    }
+  }
+
+  // Add revoke consent to ProfileDropdown
+  const handleRevokeConsent = async () => {
+    if (!user) return;
+    await upsertUserProfile({ id: user.id, smart_mode_enabled: false });
+    setSmartModeEnabled(false);
+    setMode('Fresh');
+  };
 
   return (
     <html lang="en">
@@ -103,7 +206,7 @@ export default function RootLayout({
                     type="button"
                     className={`relative z-10 flex-1 h-10 flex items-center justify-center font-bold text-lg rounded-full transition-colors duration-200 no-outline
                       ${mode === 'Fresh' ? 'text-white' : 'text-gray-500 dark:text-gray-300'}`}
-                    onClick={() => setMode('Fresh')}
+                    onClick={() => handleModeChange('Fresh')}
                     aria-pressed={mode === 'Fresh'}
                     style={{ background: 'transparent', border: 'none' }}
                   >
@@ -113,7 +216,7 @@ export default function RootLayout({
                     type="button"
                     className={`relative z-10 flex-1 h-10 flex items-center justify-center font-bold text-lg rounded-full transition-colors duration-200 no-outline
                       ${mode === 'Smart' ? 'text-white' : 'text-gray-500 dark:text-gray-300'}`}
-                    onClick={() => setMode('Smart')}
+                    onClick={() => handleModeChange('Smart')}
                     aria-pressed={mode === 'Smart'}
                     style={{ background: 'transparent', border: 'none' }}
                   >
@@ -122,12 +225,25 @@ export default function RootLayout({
                 </div>
               </div>
               {user ? (
-                <div className="flex items-center gap-2 animate-fade-in">
-                  <span className="inline-flex items-center gap-2 px-3 py-1 rounded-xl bg-glass/70 dark:bg-darkglass/70 text-primary font-semibold shadow-sm">
-                    <svg className="w-5 h-5 text-accent" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M16 12A4 4 0 1 1 8 12a4 4 0 0 1 8 0Z"/><path d="M12 16c-4.418 0-8 1.79-8 4v2h16v-2c0-2.21-3.582-4-8-4Z"/></svg>
-                    {user.email}
-                  </span>
-                  <button className="px-3 py-1 rounded-xl bg-gradient-to-tr from-primary to-accent text-white font-semibold shadow hover:scale-105 active:scale-95 transition-all" onClick={async () => { await supabase.auth.signOut(); }}>Logout</button>
+                <div className="relative">
+                  <button
+                    className="inline-flex items-center justify-center h-10 w-10 rounded-full bg-gradient-to-tr from-primary to-accent text-white font-bold text-lg shadow-md focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    onClick={() => setDropdownOpen(o => !o)}
+                    aria-label="Open profile menu"
+                  >
+                    <FiUser className="w-6 h-6" />
+                  </button>
+                  <ProfileDropdown
+                    open={dropdownOpen}
+                    onClose={() => setDropdownOpen(false)}
+                    user={user}
+                    onReadingList={() => { setDropdownOpen(false); window.location.href = '/reading-list'; }}
+                    onDeleteData={() => { setDropdownOpen(false); setShowDeleteModal(true); }}
+                    onLogout={async () => { setDropdownOpen(false); await supabase.auth.signOut(); window.location.href = '/'; }}
+                    onRevokeConsent={handleRevokeConsent}
+                    smartModeEnabled={smartModeEnabled}
+                    mode={mode}
+                  />
                 </div>
               ) : (
                 <button className="ml-2 px-6 py-2 rounded-xl bg-gradient-to-tr from-primary to-accent text-white font-semibold shadow-lg hover:scale-105 active:scale-95 transition-all flex items-center gap-2 text-lg" onClick={() => setShowLogin(true)}>
@@ -146,6 +262,39 @@ export default function RootLayout({
             error={authError}
             loading={authModalLoading}
             onSendMagicLink={onSendMagicLink}
+          />
+          <SmartModeConsentModal
+            open={showSmartConsent}
+            onClose={() => setShowSmartConsent(false)}
+            onEnable={handleEnableSmartMode}
+            loading={smartConsentLoading}
+          />
+          <DeleteDataModal
+            open={showDeleteModal}
+            loading={deleteLoading}
+            error={deleteError}
+            onClose={() => { if (!deleteLoading) setShowDeleteModal(false); setDeleteError(''); }}
+            onDelete={async () => {
+              setDeleteLoading(true);
+              setDeleteError('');
+              try {
+                const userId = user?.id;
+                if (!userId) throw new Error('No user');
+                await deleteUserInteractions(userId);
+                await deleteSmartPromptEmbeddings(userId);
+                await deleteSmartDiscoverySessions(userId);
+                await deleteSmartDiscoveryProfile(userId);
+                await deletePrivacyConsents(userId);
+                await deleteUserProfile(userId);
+                setShowDeleteModal(false);
+                setDeleteLoading(false);
+                await supabase.auth.signOut();
+                window.location.href = '/';
+              } catch (err: any) {
+                setDeleteError('Failed to delete all data. Please try again.');
+                setDeleteLoading(false);
+              }
+            }}
           />
         </ModeContext.Provider>
         </AuthContext.Provider>

@@ -1,0 +1,499 @@
+-- ============================================================================
+-- BOOKSCOUT SIMPLIFIED DATABASE SCHEMA - ANONYMOUS FRESH MODE + AUTHENTICATED SMART MODE
+-- ============================================================================
+-- Features: Anonymous Fresh Mode + Authenticated Smart Mode + ML/FAISS + Redis
+-- Privacy: Fresh Mode (no tracking) + Smart Mode (full tracking with consent)
+-- ML Ready: FAISS embeddings + Redis caching + Complete recommendation system
+-- ACID Compliant: Full referential integrity + constraints + transactions
+-- ============================================================================
+
+-- Enable necessary extensions
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+CREATE EXTENSION IF NOT EXISTS "vector"; -- For pgvector embeddings
+
+-- ============================================================================
+-- CORE USER MANAGEMENT TABLES
+-- ============================================================================
+
+-- TABLE 1: USER_PROFILES (Core user data for authenticated users only)
+CREATE TABLE public.user_profiles (
+    id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    
+    -- User identification
+    email TEXT NOT NULL UNIQUE,
+    
+    -- Smart mode settings
+    smart_mode_enabled BOOLEAN DEFAULT false,
+    smart_mode_consent_token TEXT,
+    smart_mode_enabled_at TIMESTAMPTZ,
+    
+    -- User preferences
+    preferred_discovery_mode TEXT DEFAULT 'fresh' 
+        CHECK (preferred_discovery_mode IN ('fresh', 'smart')),
+    
+    -- Timestamps (ACID compliance)
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_login_at TIMESTAMPTZ,
+    
+    -- Data retention and deletion
+    data_retention_days INTEGER DEFAULT 365,
+    deletion_requested_at TIMESTAMPTZ,
+    deletion_completed_at TIMESTAMPTZ,
+    
+    -- Constraints for data integrity
+    CONSTRAINT valid_email CHECK (email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$')
+);
+
+-- ============================================================================
+-- BOOK DATA AND ML SYSTEM TABLES
+-- ============================================================================
+
+-- TABLE 2: BOOK_INDEX (Master book database for ML + Privacy-aware purchase options)
+CREATE TABLE public.book_index (
+    -- Book identification
+    isbn_13 TEXT PRIMARY KEY,
+    isbn_10 TEXT,
+    google_books_id TEXT,
+    asin TEXT,
+    
+    -- Book metadata
+    title TEXT NOT NULL,
+    subtitle TEXT,
+    authors TEXT[],
+    primary_author TEXT,
+    
+    -- Classification
+    genre TEXT,
+    categories TEXT[],
+    language TEXT DEFAULT 'en',
+    
+    -- Content data
+    description TEXT,
+    page_count INTEGER,
+    published_date DATE,
+    publisher TEXT,
+    
+    -- Ratings and popularity
+    average_rating DECIMAL(3,2),
+    ratings_count INTEGER DEFAULT 0,
+    popularity_score DECIMAL(5,2) DEFAULT 0.00,
+    
+    -- Images and links  
+    thumbnail_url TEXT,
+    cover_image_url TEXT,
+    preview_link TEXT,
+    
+    -- Smart Mode affiliate links (only shown with consent + disclosure)
+    amazon_affiliate_url TEXT,
+    flipkart_affiliate_url TEXT,
+    audible_affiliate_url TEXT,
+    affiliate_disclosure_required BOOLEAN DEFAULT true,
+    
+    -- ML features
+    content_embedding VECTOR(768),
+    genre_embedding VECTOR(128),
+    content_hash TEXT,
+    
+    -- ML metadata
+    embedding_model_version TEXT DEFAULT 'all-mpnet-base-v2',
+    embedding_computed_at TIMESTAMPTZ,
+    quality_score DECIMAL(3,2) DEFAULT 0.00,
+    
+    -- Search optimization
+    search_text TSVECTOR,
+    tags TEXT[],
+    
+    -- Data source tracking
+    data_source TEXT,
+    last_updated_at TIMESTAMPTZ DEFAULT NOW(),
+    
+    -- Status
+    is_active BOOLEAN DEFAULT true,
+    is_available BOOLEAN DEFAULT true,
+    
+    -- Timestamps
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    
+    -- Constraints
+    CONSTRAINT valid_rating CHECK (average_rating IS NULL OR (average_rating >= 0.0 AND average_rating <= 5.0)),
+    CONSTRAINT valid_quality CHECK (quality_score >= 0.0 AND quality_score <= 1.0),
+    CONSTRAINT valid_page_count CHECK (page_count IS NULL OR page_count > 0)
+);
+
+-- ============================================================================
+-- SMART MODE TRACKING TABLES (Created when user enables Smart Mode)
+-- ============================================================================
+
+-- TABLE 3: SMART_DISCOVERY_PROFILES (User learning profiles - authenticated only)
+CREATE TABLE public.smart_discovery_profiles (
+    user_id UUID PRIMARY KEY REFERENCES public.user_profiles(id) ON DELETE CASCADE,
+    
+    -- Learned preferences (ML features)
+    preferred_genres JSONB DEFAULT '{}',
+    preferred_authors JSONB DEFAULT '{}',
+    preferred_themes JSONB DEFAULT '{}',
+    preferred_categories JSONB DEFAULT '{}',
+    
+    -- Reading behavior patterns
+    reading_level TEXT DEFAULT 'mixed' CHECK (reading_level IN ('beginner', 'intermediate', 'advanced', 'mixed')),
+    discovery_style TEXT DEFAULT 'balanced' CHECK (discovery_style IN ('conservative', 'balanced', 'adventurous')),
+    typical_session_length INTEGER DEFAULT 3,
+    average_rating_given DECIMAL(3,2),
+    
+    -- ML model features
+    user_embedding VECTOR(768),
+    genre_exploration_rate DECIMAL(3,2) DEFAULT 0.30,
+    diversity_preference DECIMAL(3,2) DEFAULT 0.50,
+    novelty_preference DECIMAL(3,2) DEFAULT 0.50,
+    
+    -- Learning metrics
+    total_discoveries INTEGER DEFAULT 0,
+    successful_discoveries INTEGER DEFAULT 0,
+    total_interactions INTEGER DEFAULT 0,
+    profile_confidence DECIMAL(3,2) DEFAULT 0.00,
+    
+    -- Model versioning
+    model_version TEXT DEFAULT '1.0',
+    last_training_date TIMESTAMPTZ,
+    next_training_due TIMESTAMPTZ,
+    
+    -- Privacy and data retention
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_updated TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_interaction_at TIMESTAMPTZ,
+    data_expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '365 days'),
+    
+    -- Constraints
+    CONSTRAINT valid_confidence CHECK (profile_confidence >= 0.0 AND profile_confidence <= 1.0),
+    CONSTRAINT valid_exploration_rate CHECK (genre_exploration_rate >= 0.0 AND genre_exploration_rate <= 1.0),
+    CONSTRAINT valid_diversity_pref CHECK (diversity_preference >= 0.0 AND diversity_preference <= 1.0),
+    CONSTRAINT valid_novelty_pref CHECK (novelty_preference >= 0.0 AND novelty_preference <= 1.0)
+);
+
+-- TABLE 4: USER_INTERACTIONS (Complete interaction tracking for ML - authenticated only)
+CREATE TABLE public.user_interactions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    
+    -- User and session context
+    user_id UUID NOT NULL REFERENCES public.user_profiles(id) ON DELETE CASCADE,
+    session_id UUID,
+    recommendation_id TEXT,
+    
+    -- Interaction details
+    interaction_type TEXT NOT NULL CHECK (interaction_type IN (
+        'book_clicked', 'details_viewed', 'saved_for_later', 'shared_book',
+        'purchase_clicked', 'affiliate_link_clicked', 'similar_searched', 'quickly_skipped', 'dismissed',
+        'search_refined', 'considered', 'genre_explored', 'author_explored',
+        'rating_given', 'review_written', 'added_to_wishlist', 'removed_from_wishlist'
+    )),
+    
+    -- Book context
+    book_isbn TEXT NOT NULL,
+    book_title TEXT,
+    book_author TEXT,
+    book_genre TEXT,
+    book_categories TEXT[],
+    
+    -- Interaction metrics
+    signal_strength DECIMAL(3,2) DEFAULT 0.50 CHECK (signal_strength >= 0.0 AND signal_strength <= 1.0),
+    position_in_results INTEGER,
+    view_duration_ms INTEGER,
+    scroll_depth_percent INTEGER,
+    click_coordinates JSONB,
+    
+    -- Rating and feedback
+    user_rating DECIMAL(3,2),
+    user_feedback TEXT,
+    
+    -- Discovery context
+    discovery_context JSONB DEFAULT '{}',
+    search_query TEXT,
+    recommendation_algorithm TEXT,
+    
+    -- ML features
+    interaction_embedding VECTOR(128),
+    relevance_score DECIMAL(3,2),
+    
+    -- Session data
+    device_type TEXT,
+    user_agent_hash TEXT,
+    
+    -- Affiliate tracking (Smart Mode only)
+    affiliate_platform TEXT,
+    affiliate_click_tracked BOOLEAN DEFAULT false,
+    
+    -- Timestamps
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    processed_for_ml BOOLEAN DEFAULT false,
+    processed_at TIMESTAMPTZ,
+    deleted_at TIMESTAMPTZ,
+    
+    -- Constraints
+    CONSTRAINT valid_rating CHECK (user_rating IS NULL OR (user_rating >= 1.0 AND user_rating <= 5.0)),
+    CONSTRAINT valid_position CHECK (position_in_results IS NULL OR position_in_results >= 0),
+    CONSTRAINT valid_duration CHECK (view_duration_ms IS NULL OR view_duration_ms >= 0)
+);
+
+-- TABLE 5: SMART_DISCOVERY_SESSIONS (Smart Mode session tracking + AI reasoning storage - authenticated only)
+CREATE TABLE public.smart_discovery_sessions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES public.user_profiles(id) ON DELETE CASCADE,
+    
+    -- Session identification
+    session_id TEXT NOT NULL,
+    frontend_session_id TEXT,
+    
+    -- Request data
+    user_prompt TEXT NOT NULL,
+    processed_prompt TEXT,
+    search_queries JSONB,
+    search_strategy TEXT,
+    
+    -- Results
+    books_discovered JSONB,
+    total_books_found INTEGER DEFAULT 0,
+    recommendation_algorithm TEXT,
+    personalization_level DECIMAL(3,2),
+    
+    -- AI Reasoning and Insights
+    discovery_reasoning TEXT,
+    personalized_insights TEXT,
+    reading_journey TEXT,
+    why_perfect_for_you TEXT,
+    discovery_growth TEXT,
+    ml_reasoning TEXT,
+    
+    -- Performance metrics
+    response_time_ms INTEGER,
+    cache_hit BOOLEAN DEFAULT false,
+    ml_processing_time_ms INTEGER,
+    
+    -- ML metadata
+    user_embedding_used VECTOR(768),
+    model_version TEXT,
+    confidence_score DECIMAL(3,2),
+    
+    -- Quality metrics
+    diversity_score DECIMAL(3,2),
+    novelty_score DECIMAL(3,2),
+    relevance_score DECIMAL(3,2),
+    
+    -- Timestamps
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMPTZ,
+    deleted_at TIMESTAMPTZ,
+    
+    -- Constraints
+    CONSTRAINT valid_personalization CHECK (personalization_level IS NULL OR (personalization_level >= 0.0 AND personalization_level <= 1.0)),
+    CONSTRAINT valid_confidence CHECK (confidence_score IS NULL OR (confidence_score >= 0.0 AND confidence_score <= 1.0))
+);
+
+-- ============================================================================
+-- PRIVACY AND COMPLIANCE TABLES
+-- ============================================================================
+
+-- TABLE 6: PRIVACY_CONSENTS (GDPR compliance - authenticated only)
+CREATE TABLE public.privacy_consents (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES public.user_profiles(id) ON DELETE CASCADE,
+    
+    -- Consent details
+    consent_type TEXT NOT NULL CHECK (consent_type IN (
+        'smart_mode', 'data_collection', 'analytics', 'marketing', 
+        'personalization', 'ml_training', 'affiliate_tracking'
+    )),
+    consent_given BOOLEAN NOT NULL,
+    consent_version TEXT DEFAULT '1.0',
+    
+    -- Legal compliance
+    consent_token TEXT UNIQUE,
+    consent_method TEXT DEFAULT 'web_form' CHECK (consent_method IN ('web_form', 'api', 'email', 'phone')),
+    legal_basis TEXT,
+    
+    -- Context information
+    ip_address INET,
+    user_agent_hash TEXT,
+    page_url TEXT,
+    referrer_url TEXT,
+    
+    -- Geographic compliance
+    user_country TEXT,
+    gdpr_applies BOOLEAN DEFAULT true,
+    ccpa_applies BOOLEAN DEFAULT false,
+    
+    -- Consent lifecycle
+    granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at TIMESTAMPTZ,
+    revoked_at TIMESTAMPTZ,
+    reminder_sent_at TIMESTAMPTZ,
+    
+    -- Audit trail
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    
+    -- Constraints
+    CONSTRAINT valid_consent_period CHECK (expires_at IS NULL OR expires_at > granted_at),
+    CONSTRAINT valid_revocation CHECK (revoked_at IS NULL OR revoked_at >= granted_at)
+);
+
+-- ============================================================================
+-- ANALYTICS AND MONITORING TABLES
+-- ============================================================================
+
+-- TABLE 7: FRESH_MODE_METRICS (Completely anonymous aggregate metrics)
+CREATE TABLE public.fresh_mode_metrics (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    
+    -- Time-based aggregation (no user tracking)
+    metric_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    metric_hour INTEGER DEFAULT EXTRACT(HOUR FROM NOW()),
+    
+    -- Aggregate counts (no individual tracking)
+    total_requests INTEGER DEFAULT 0,
+    successful_requests INTEGER DEFAULT 0,
+    failed_requests INTEGER DEFAULT 0,
+    
+    -- Performance aggregates
+    avg_response_time_ms DECIMAL(8,2),
+    max_response_time_ms INTEGER,
+    min_response_time_ms INTEGER,
+    total_books_returned INTEGER DEFAULT 0,
+    
+    -- System health (no user data)
+    cache_hit_rate DECIMAL(5,4),
+    error_rate DECIMAL(5,4),
+    
+    -- Geographic aggregates (continent level only)
+    region_code TEXT,
+    
+    -- Content diversity (aggregate only)
+    unique_genres_served INTEGER DEFAULT 0,
+    unique_authors_served INTEGER DEFAULT 0,
+    avg_books_per_request DECIMAL(4,2),
+    
+    -- Timestamps
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    
+    -- Ensure daily aggregation uniqueness
+    UNIQUE(metric_date, metric_hour, region_code)
+);
+
+-- ============================================================================
+-- INDEXES FOR PERFORMANCE
+-- ============================================================================
+
+-- User profiles indexes
+CREATE INDEX idx_user_profiles_email ON public.user_profiles(email);
+CREATE INDEX idx_user_profiles_smart_mode ON public.user_profiles(smart_mode_enabled) WHERE smart_mode_enabled = true;
+
+-- Book index optimizations
+CREATE INDEX idx_book_index_title ON public.book_index USING GIN(to_tsvector('english', title));
+CREATE INDEX idx_book_index_author ON public.book_index(primary_author);
+CREATE INDEX idx_book_index_genre ON public.book_index(genre);
+CREATE INDEX idx_book_index_rating ON public.book_index(average_rating DESC) WHERE average_rating IS NOT NULL;
+CREATE INDEX idx_book_index_popularity ON public.book_index(popularity_score DESC);
+CREATE INDEX idx_book_index_categories ON public.book_index USING GIN(categories);
+CREATE INDEX idx_book_index_active ON public.book_index(is_active) WHERE is_active = true;
+
+-- Smart Mode indexes
+CREATE INDEX idx_smart_profiles_user_id ON public.smart_discovery_profiles(user_id);
+CREATE INDEX idx_smart_profiles_confidence ON public.smart_discovery_profiles(profile_confidence DESC);
+CREATE INDEX idx_smart_profiles_last_updated ON public.smart_discovery_profiles(last_updated);
+
+CREATE INDEX idx_user_interactions_user_id ON public.user_interactions(user_id);
+CREATE INDEX idx_user_interactions_created_at ON public.user_interactions(created_at);
+CREATE INDEX idx_user_interactions_type ON public.user_interactions(interaction_type);
+CREATE INDEX idx_user_interactions_book_isbn ON public.user_interactions(book_isbn);
+
+CREATE INDEX idx_smart_sessions_user_id ON public.smart_discovery_sessions(user_id);
+CREATE INDEX idx_smart_sessions_created_at ON public.smart_discovery_sessions(created_at);
+CREATE INDEX idx_smart_sessions_session_id ON public.smart_discovery_sessions(session_id);
+
+-- Privacy and compliance indexes
+CREATE INDEX idx_privacy_consents_user_id ON public.privacy_consents(user_id);
+CREATE INDEX idx_privacy_consents_type_status ON public.privacy_consents(consent_type, consent_given);
+CREATE INDEX idx_privacy_consents_token ON public.privacy_consents(consent_token) WHERE consent_token IS NOT NULL;
+
+-- Fresh mode metrics indexes
+CREATE INDEX idx_fresh_metrics_date ON public.fresh_mode_metrics(metric_date);
+CREATE INDEX idx_fresh_metrics_hour ON public.fresh_mode_metrics(metric_date, metric_hour);
+CREATE INDEX idx_fresh_metrics_region ON public.fresh_mode_metrics(region_code);
+
+-- ============================================================================
+-- ROW LEVEL SECURITY (RLS) POLICIES
+-- ============================================================================
+
+-- Enable RLS on all user tables
+ALTER TABLE public.user_profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.smart_discovery_profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_interactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.smart_discovery_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.privacy_consents ENABLE ROW LEVEL SECURITY;
+
+-- Users can only access their own data
+CREATE POLICY "Users can access own profile" 
+    ON public.user_profiles FOR ALL 
+    USING (auth.uid() = id);
+
+CREATE POLICY "Users can access own smart profile" 
+    ON public.smart_discovery_profiles FOR ALL 
+    USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can access own interactions" 
+    ON public.user_interactions FOR ALL 
+    USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can access own smart sessions" 
+    ON public.smart_discovery_sessions FOR ALL 
+    USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can access own consents" 
+    ON public.privacy_consents FOR ALL 
+    USING (auth.uid() = user_id);
+
+-- Public read access for book index (no user-specific data)
+ALTER TABLE public.book_index ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Anyone can read books" 
+    ON public.book_index FOR SELECT 
+    USING (true);
+
+-- Service/admin-only access for analytics
+ALTER TABLE public.fresh_mode_metrics ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "No user access to fresh metrics" 
+    ON public.fresh_mode_metrics FOR ALL 
+    USING (false);
+
+-- ============================================================================
+-- FINAL SCHEMA VALIDATION
+-- ============================================================================
+
+-- Add comments for documentation
+COMMENT ON TABLE public.user_profiles IS 'Core user data for authenticated users only';
+COMMENT ON TABLE public.book_index IS 'Master book database with ML embeddings and privacy-aware purchase options';
+COMMENT ON TABLE public.smart_discovery_profiles IS 'ML learning profiles created only with user consent (authenticated only)';
+COMMENT ON TABLE public.user_interactions IS 'Complete interaction tracking for Smart Mode learning (authenticated only)';
+COMMENT ON TABLE public.smart_discovery_sessions IS 'Smart Mode sessions with AI reasoning and personalized insights (authenticated only)';
+COMMENT ON TABLE public.fresh_mode_metrics IS 'Anonymous aggregate metrics for Fresh mode - NO user tracking';
+
+-- Schema creation complete
+SELECT 'BookScout Database Schema Created Successfully!' AS status;
+
+-- Idempotent block to add foreign key constraint from user_interactions.book_isbn to book_index.isbn_13
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.table_constraints
+        WHERE constraint_name = 'fk_user_interactions_book_isbn'
+          AND table_name = 'user_interactions'
+    ) THEN
+        ALTER TABLE public.user_interactions
+        ADD CONSTRAINT fk_user_interactions_book_isbn
+        FOREIGN KEY (book_isbn)
+        REFERENCES public.book_index(isbn_13);
+    END IF;
+END$$; 

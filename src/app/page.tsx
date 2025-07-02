@@ -4,6 +4,8 @@ import { useRouter } from 'next/navigation';
 import { ModeContext, AuthContext } from './layout';
 import { supabase } from '../../lib/supabase';
 import { FiSearch } from 'react-icons/fi';
+import BookCard from './components/BookCard';
+import BookModal from './components/BookModal';
 
 const Home: FC = () => {
   const { mode } = useContext(ModeContext);
@@ -11,6 +13,7 @@ const Home: FC = () => {
   const [prompt, setPrompt] = useState('');
   const [error, setError] = useState('');
   const [results, setResults] = useState<any>(null);
+  const [selectedBook, setSelectedBook] = useState<any>(null);
   const router = useRouter();
 
   const triggerLoginModal = () => {
@@ -50,6 +53,9 @@ const Home: FC = () => {
     }
   };
 
+  const openModal = (book: any) => setSelectedBook(book);
+  const closeModal = () => setSelectedBook(null);
+
   return (
     <main className="flex flex-col items-center justify-center min-h-[80vh] px-4 animate-fade-in">
       <section className="w-full max-w-2xl flex flex-col items-center gap-10 mt-24">
@@ -81,21 +87,26 @@ const Home: FC = () => {
           {error && <span className="text-red-400 text-sm mt-1 animate-fade-in">{error}</span>}
         </form>
         {/* Inline results for Fresh mode */}
-        {results && mode === 'Fresh' && (
+        {mode === 'Fresh' && (
           <div className="w-full flex flex-col gap-6 mt-8 animate-fade-in">
-            <div className="bg-glass/80 dark:bg-darkglass/80 rounded-2xl p-6 text-center text-white/80 font-medium shadow-glass mb-4">
-              {results.llmResponse || '[LLM response placeholder]'}
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-              {results.books?.map((book: any, i: number) => (
-                <div key={i} className="h-44 bg-white/10 dark:bg-black/30 rounded-2xl shadow-glass flex flex-col items-center justify-center gap-2 hover:scale-105 transition-transform cursor-pointer group">
-                  <div className="w-16 h-24 bg-gradient-to-tr from-primary/30 to-accent/30 rounded-xl mb-2 flex items-center justify-center">
-                    <svg className="w-8 h-8 text-primary/70 group-hover:text-accent transition-colors" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 32 32"><path d="M16 8C16 8 13 4 6 4v20c7 0 10 4 10 4s3-4 10-4V4c-7 0-10 4-10 4z"/></svg>
-                  </div>
-                  <span className="text-base font-semibold text-white/90 text-center">{book.title || `Book Card ${i+1}`}</span>
+            {results === null && (
+              <div className="bg-glass/80 dark:bg-darkglass/80 rounded-2xl p-6 text-center text-white/80 font-medium shadow-glass mb-4">
+                Curating books based on your ask...
+              </div>
+            )}
+            {results && (
+              <>
+                <div className="bg-glass/80 dark:bg-darkglass/80 rounded-2xl p-6 text-center text-white/80 font-medium shadow-glass mb-4">
+                  {results.llmResponse || '[LLM response placeholder]'}
                 </div>
-              ))}
-            </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                  {results.books?.map((book: any, i: number) => (
+                    <BookCard key={i} book={book} onClick={() => openModal(book)} />
+                  ))}
+                </div>
+                <BookModal open={!!selectedBook} book={selectedBook} onClose={closeModal} />
+              </>
+            )}
           </div>
         )}
       </section>

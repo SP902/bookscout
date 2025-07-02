@@ -1,0 +1,13 @@
+-- Table for storing hashed prompt and embedding for Smart Mode personalization
+CREATE TABLE public.smart_prompt_embeddings (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES public.user_profiles(id) ON DELETE CASCADE,
+    prompt_hash TEXT NOT NULL,
+    embedding_vector VECTOR(1536) NOT NULL, -- 1536 for OpenAI text-embedding-3-small, adjust if needed
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (user_id, prompt_hash)
+);
+
+-- Optional: Index for fast similarity search (if you want to do ANN search in the future)
+CREATE INDEX idx_smart_prompt_embeddings_user_id ON public.smart_prompt_embeddings(user_id);
+CREATE INDEX idx_smart_prompt_embeddings_hash ON public.smart_prompt_embeddings(prompt_hash);
