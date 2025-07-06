@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useContext } from 'react';
 import { FiLogOut, FiTrash2, FiBookOpen, FiUser, FiToggleLeft } from 'react-icons/fi';
+import { ModeContext } from '../layout';
 
 interface ProfileDropdownProps {
   open: boolean;
@@ -14,6 +15,7 @@ interface ProfileDropdownProps {
 }
 
 const ProfileDropdown: React.FC<ProfileDropdownProps> = ({ open, onClose, user, onReadingList, onDeleteData, onLogout, onRevokeConsent, smartModeEnabled, mode }) => {
+  const { mode: currentMode } = useContext(ModeContext);
   const ref = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
@@ -43,7 +45,9 @@ const ProfileDropdown: React.FC<ProfileDropdownProps> = ({ open, onClose, user, 
           <span className="pt-0.5"><FiBookOpen className="w-4 h-4 text-primary" /></span>
           <span className="flex flex-col items-start">
             <span className="leading-tight">Reading List</span>
-            <span className="text-xs text-primary/60 mt-0.5">Smart Mode only</span>
+            <span className="text-xs text-primary/60 mt-0.5">
+              {currentMode === 'Smart' ? 'View and manage' : 'View and manage saved books'}
+            </span>
           </span>
         </button>
         {mode === 'Smart' && smartModeEnabled && (

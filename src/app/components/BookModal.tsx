@@ -1,6 +1,6 @@
 import React, { useContext, useEffect, useState } from 'react';
 import type { Book } from '../../../lib/types';
-import { AuthContext } from '../layout';
+import { AuthContext, ModeContext } from '../layout';
 import { FiBookmark } from 'react-icons/fi';
 import { LuSparkles, LuEyeOff } from 'react-icons/lu';
 
@@ -15,6 +15,7 @@ interface BookModalProps {
 
 const BookModal: React.FC<BookModalProps> = ({ open, book, onClose, positionInResults, sessionId, discoveryContext }) => {
   const { user } = useContext(AuthContext);
+  const { mode } = useContext(ModeContext);
   const [buttonState, setButtonState] = useState<{ [key: string]: 'idle' | 'loading' | 'success' | 'error' }>({});
   const [showToast, setShowToast] = useState<string | null>(null);
 
@@ -27,7 +28,7 @@ const BookModal: React.FC<BookModalProps> = ({ open, book, onClose, positionInRe
   }, [open, user, book]);
 
   async function trackInteraction(interactionType: string, book: Book) {
-    if (!user) return;
+    if (!user || mode !== 'Smart') return;
     setButtonState(s => ({ ...s, [interactionType]: 'loading' }));
     try {
       const res = await fetch('/api/track-interaction', {
@@ -132,7 +133,7 @@ const BookModal: React.FC<BookModalProps> = ({ open, book, onClose, positionInRe
           ))}
         </div>
         {/* Subtle inline interaction buttons for Smart mode only */}
-        {user && (
+        {user && mode === 'Smart' && (
           <div className="flex flex-row gap-2 mt-2 justify-end items-center">
             {buttons.map(btn => (
               <button
@@ -155,6 +156,13 @@ const BookModal: React.FC<BookModalProps> = ({ open, book, onClose, positionInRe
                 {btn.label}
               </button>
             ))}
+          </div>
+        )}
+        {/* Show mode switch prompt for logged-in users in Fresh mode */}
+        {user && mode === 'Fresh' && (
+          <div className="text-center mt-4 p-3 bg-primary/10 rounded-lg border border-primary/20">
+            <div className="text-sm text-primary font-medium mb-1">Switch to Smart Mode</div>
+            <div className="text-xs text-white/60">Save books and get personalized recommendations</div>
           </div>
         )}
         {showToast && (

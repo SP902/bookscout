@@ -1,8 +1,9 @@
 'use client';
 import React, { useEffect, useState, useContext } from 'react';
 import { supabase } from '../../../lib/supabase';
-import { AuthContext } from '../layout';
+import { AuthContext, ModeContext } from '../layout';
 import BookCard from '../components/BookCard';
+import BookModal from '../components/BookModal';
 import { useRouter } from 'next/navigation';
 import { FiArrowLeft, FiBookOpen, FiLoader } from 'react-icons/fi';
 
@@ -11,12 +12,14 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 const ReadingListPage: React.FC = () => {
   const { user, loading } = useContext(AuthContext);
+  const { mode } = useContext(ModeContext);
   const [books, setBooks] = useState<any[]>([]);
   const [lastFetched, setLastFetched] = useState<number | null>(null);
   const [loadingBooks, setLoadingBooks] = useState(true);
   const [error, setError] = useState('');
   const [removing, setRemoving] = useState<string | null>(null);
   const [spinner, setSpinner] = useState(true);
+  const [selectedBook, setSelectedBook] = useState<any>(null);
   const router = useRouter();
 
   // Helper to fetch books
@@ -68,6 +71,7 @@ const ReadingListPage: React.FC = () => {
   }, [user, loading]);
 
   const handleRemove = async (interactionId: string) => {
+    // Allow removal in both modes (Fresh and Smart)
     setRemoving(interactionId);
     const { error } = await supabase.from('user_interactions').delete().eq('id', interactionId);
     if (!error) {
@@ -77,6 +81,9 @@ const ReadingListPage: React.FC = () => {
     }
     setRemoving(null);
   };
+
+  const openModal = (book: any) => setSelectedBook(book);
+  const closeModal = () => setSelectedBook(null);
 
   const showEmptyState = !spinner && books.length === 0;
   const showError = error && !showEmptyState;
@@ -94,14 +101,21 @@ const ReadingListPage: React.FC = () => {
             <FiArrowLeft className="w-6 h-6" />
           </button>
           <span className="text-2xl font-extrabold text-white/90 ml-1 tracking-tight">My Reading List</span>
-          <button
-            className="ml-auto px-4 py-2 rounded-lg bg-primary/80 text-white font-semibold text-sm shadow hover:bg-primary/90 transition-all"
-            onClick={handleRefresh}
-            disabled={spinner}
-            aria-label="Refresh Reading List"
-          >
-            Refresh
-          </button>
+          <div className="ml-auto flex items-center gap-3">
+            {mode === 'Fresh' && (
+              <span className="px-3 py-1 rounded-full bg-yellow-500/20 text-yellow-400 text-xs font-medium border border-yellow-500/30">
+                Fresh Mode
+              </span>
+            )}
+            <button
+              className="px-4 py-2 rounded-lg bg-primary/80 text-white font-semibold text-sm shadow hover:bg-primary/90 transition-all"
+              onClick={handleRefresh}
+              disabled={spinner}
+              aria-label="Refresh Reading List"
+            >
+              Refresh
+            </button>
+          </div>
         </div>
       </div>
       <div className="w-full max-w-3xl flex flex-col gap-8">
@@ -118,22 +132,34 @@ const ReadingListPage: React.FC = () => {
               <FiBookOpen className="w-12 h-12 text-primary" />
             </span>
             <div className="text-2xl font-bold text-white/90">Start your reading list!</div>
-            <div className="text-base text-white/60 max-w-xs text-center">Save books in Smart Mode to see them here. Ready to discover your next favorite?</div>
+            <div className="text-base text-white/60 max-w-xs text-center">
+              {mode === 'Smart' 
+                ? "Save books in Smart Mode to see them here. Ready to discover your next favorite?"
+                : "Switch to Smart Mode to save books and build your reading list."
+              }
+            </div>
             <button
               className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-tr from-primary to-accent text-white font-semibold shadow hover:scale-105 active:scale-95 transition-all text-lg mt-2"
               onClick={() => router.push('/')}
             >
-              <FiBookOpen className="w-5 h-5" /> Discover Books
+              <FiBookOpen className="w-5 h-5" /> 
+              {mode === 'Smart' ? 'Discover Books' : 'Switch to Smart Mode'}
             </button>
           </div>
         ) : showError ? (
           <div className="text-center text-red-400 py-8">{error}</div>
         ) : (
           <>
+            {mode === 'Fresh' && books.length > 0 && (
+              <div className="mb-6 p-4 bg-primary/10 rounded-xl border border-primary/20">
+                <div className="text-sm text-primary font-medium mb-1">Viewing previously saved books</div>
+                <div className="text-xs text-white/60">Switch to Smart Mode to add new books and get personalized recommendations</div>
+              </div>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
               {books.map((b) => (
                 <div key={b.id} className="relative group">
-                  <BookCard book={b.book_index} />
+                  <BookCard book={b.book_index} onClick={() => openModal(b.book_index)} />
                   <button
                     className="absolute top-2 right-2 z-10 px-2 py-1 rounded bg-red-600/90 text-white text-xs font-semibold shadow hover:bg-red-700 transition-all focus:outline-none"
                     onClick={() => handleRemove(b.id)}
@@ -144,6 +170,7 @@ const ReadingListPage: React.FC = () => {
                 </div>
               ))}
             </div>
+            <BookModal open={!!selectedBook} book={selectedBook} onClose={closeModal} />
             <div className="flex justify-center mt-8">
               <button
                 className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-tr from-primary to-accent text-white font-semibold shadow hover:scale-105 active:scale-95 transition-all text-lg"
