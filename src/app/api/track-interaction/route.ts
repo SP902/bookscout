@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { logUserInteraction, getBookByISBN, upsertBookToIndex } from '../../../../lib/supabase';
+import { logUserInteraction, getBookByISBN, upsertBookToIndex, getUserProfile } from '../../../../lib/supabase';
 import type { Book } from '../../../../lib/types';
 
 const INTERACTION_MAP = {
@@ -7,11 +7,12 @@ const INTERACTION_MAP = {
   show_more_like: { type: 'liked', signal: 0.8 },
   hide_similar: { type: 'dismissed', signal: -0.5 },
   clicked: { type: 'clicked', signal: 0.1 },
+  viewed: { type: 'viewed', signal: 0.05 },
 };
 
 export async function POST(req: NextRequest) {
   try {
-    type InteractionType = 'add_to_list' | 'show_more_like' | 'hide_similar' | 'clicked';
+    type InteractionType = 'add_to_list' | 'show_more_like' | 'hide_similar' | 'clicked' | 'viewed';
     interface ReqBody {
       userId: string;
       bookId: string;
@@ -20,10 +21,20 @@ export async function POST(req: NextRequest) {
       position_in_results?: number;
       session_id?: string;
       discovery_context?: any;
+      currentMode: 'Fresh' | 'Smart';
     }
-    const { userId, bookId, interactionType, bookData, position_in_results, session_id, discovery_context } = await req.json() as ReqBody;
-    if (!userId || !bookId || !interactionType || !bookData) {
+    const { userId, bookId, interactionType, bookData, position_in_results, session_id, discovery_context, currentMode } = await req.json() as ReqBody;
+    if (!userId || !bookId || !interactionType || !bookData || !currentMode) {
       return NextResponse.json({ error: 'Missing required fields.' }, { status: 400 });
+    }
+
+    // Validate that user exists and current mode is Smart
+    const { data: userProfile, error: profileError } = await getUserProfile(userId);
+    if (profileError || !userProfile) {
+      return NextResponse.json({ error: 'User not found.' }, { status: 404 });
+    }
+    if (currentMode !== 'Smart') {
+      return NextResponse.json({ error: 'Tracking only allowed in Smart Mode.' }, { status: 403 });
     }
     const map = INTERACTION_MAP[interactionType];
     if (!map) {

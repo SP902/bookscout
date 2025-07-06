@@ -324,4 +324,16 @@ export async function deletePrivacyConsents(userId: string): Promise<{ error: an
     .delete()
     .eq('user_id', userId);
   return { error };
+}
+
+/**
+ * Get all user interactions for a user, ordered by most recent
+ */
+export async function getUserInteractionHistory(userId: string): Promise<{ data: UserInteraction[] | null, error: any }> {
+  const { data, error } = await supabase
+    .from('user_interactions')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+  return { data, error };
 } 

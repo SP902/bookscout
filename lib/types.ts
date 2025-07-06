@@ -221,4 +221,19 @@ export interface Book {
   average_rating: number | null;
   thumbnail_url: string | null;
   cover_image_url: string | null;
+}
+
+// Utility function to convert BookIndex to Book (extract only Book fields)
+export function toBook(bookIndex: BookIndex): Book {
+  const {
+    isbn_13, isbn_10, google_books_id, title, subtitle, authors,
+    primary_author, genre, categories, description, page_count,
+    published_date, publisher, average_rating, thumbnail_url, cover_image_url
+  } = bookIndex;
+  
+  return {
+    isbn_13, isbn_10, google_books_id, title, subtitle, authors,
+    primary_author, genre, categories, description, page_count,
+    published_date, publisher, average_rating, thumbnail_url, cover_image_url
+  };
 } 

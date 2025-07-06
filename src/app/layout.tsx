@@ -9,6 +9,9 @@ import AuthModal from './components/AuthModal';
 import SmartModeConsentModal from './components/SmartModeConsentModal';
 import ProfileDropdown from './components/ProfileDropdown';
 import DeleteDataModal from './components/DeleteDataModal';
+import ViewportTrackingDebug from './components/ViewportTrackingDebug';
+import ErrorBoundary from './components/ErrorBoundary';
+import { TrackingProvider, useTracking } from './contexts/TrackingContext';
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -84,10 +87,14 @@ export default function RootLayout({
   useEffect(() => {
     if (!user) {
       setSmartModeEnabled(null);
+      setMode('Fresh');
       return;
     }
     getUserProfile(user.id).then(({ data }) => {
-      setSmartModeEnabled(data?.smart_mode_enabled ?? false);
+      const smartModeEnabled = data?.smart_mode_enabled ?? false;
+      setSmartModeEnabled(smartModeEnabled);
+      // Sync frontend mode with database state
+      setMode(smartModeEnabled ? 'Smart' : 'Fresh');
     });
   }, [user]);
 
@@ -110,20 +117,24 @@ export default function RootLayout({
 
   // Handler for Smart Mode toggle
   async function handleModeChange(newMode: 'Fresh' | 'Smart') {
+    if (!user) {
+      setPendingSmartMode(true);
+      setShowLogin(true);
+      return;
+    }
     if (newMode === 'Smart') {
-      if (!user) {
-        setPendingSmartMode(true);
-        setShowLogin(true);
+      // Only show consent modal if user has never enabled Smart Mode before
+      if (!smartModeEnabled) {
+        setShowSmartConsent(true);
         return;
       }
-      // Check consent
-      if (smartModeEnabled) {
-        setMode('Smart');
-      } else {
-        setShowSmartConsent(true);
-      }
+      setMode('Smart');
+      await upsertUserProfile({ id: user.id, smart_mode_enabled: true });
+      setSmartModeEnabled(true);
     } else {
       setMode('Fresh');
+      await upsertUserProfile({ id: user.id, smart_mode_enabled: false });
+      setSmartModeEnabled(false);
     }
   }
 
@@ -176,127 +187,137 @@ export default function RootLayout({
       >
         <AuthContext.Provider value={{ user, loading: authLoading }}>
         <ModeContext.Provider value={{ mode, setMode }}>
-          <header className="w-full flex items-center justify-between py-4 px-8 border-b border-white/10 bg-glass/80 dark:bg-darkglass/80 backdrop-blur-md shadow-glass sticky top-0 z-20 rounded-b-2xl animate-fade-in">
-            <div className="flex items-center gap-8">
-              <div className="flex items-center gap-3">
-                <span className="inline-flex items-center justify-center h-10 w-10 rounded-xl bg-gradient-to-tr from-primary to-accent shadow-md">
-                  <svg width="28" height="28" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <TrackingProvider user={user} mode={mode}>
+            <ErrorBoundary>
+            <header className="w-full flex items-center justify-between py-3 px-6 border-b border-white/10 bg-white/90 dark:bg-gray-900/95 backdrop-blur-xl shadow-lg sticky top-0 z-30 rounded-b-xl animate-fade-in">
+              <div className="flex items-center gap-5">
+                <span className="inline-flex items-center justify-center h-9 w-9 rounded-xl bg-gradient-to-tr from-primary to-accent shadow-md">
+                  <svg width="24" height="24" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <path d="M16 8C16 8 13 4 6 4v20c7 0 10 4 10 4s3-4 10-4V4c-7 0-10 4-10 4z" stroke="white" strokeWidth="2.5" strokeLinejoin="round"/>
                   </svg>
                 </span>
-                <span className="font-extrabold text-2xl text-white drop-shadow-lg tracking-tight select-none">BookScout</span>
+                <span className="font-extrabold text-xl text-primary tracking-tight select-none">BookScout</span>
+                <nav className="hidden md:flex gap-6 text-base font-medium">
+                  <a href="/" className="px-3 py-1 rounded-lg text-white/90 hover:bg-primary/10 hover:text-primary transition-colors">Home</a>
+                  <a href="#contact" className="px-3 py-1 rounded-lg text-white/90 hover:bg-primary/10 hover:text-primary transition-colors">Contact</a>
+                  <a href="#pricing" className="px-3 py-1 rounded-lg text-white/90 hover:bg-primary/10 hover:text-primary transition-colors">Pricing</a>
+                </nav>
               </div>
-              <nav className="hidden md:flex gap-10 text-lg font-medium">
-                <a href="/" className="relative hover:text-primary transition-colors after:absolute after:-bottom-1 after:left-0 after:w-0 after:h-0.5 after:bg-gradient-to-r after:from-primary after:to-accent after:transition-all after:duration-300 hover:after:w-full after:rounded-pill">Home</a>
-                <a href="#contact" className="relative hover:text-primary transition-colors after:absolute after:-bottom-1 after:left-0 after:w-0 after:h-0.5 after:bg-gradient-to-r after:from-primary after:to-accent after:transition-all after:duration-300 hover:after:w-full after:rounded-pill">Contact</a>
-                <a href="#pricing" className="relative hover:text-primary transition-colors after:absolute after:-bottom-1 after:left-0 after:w-0 after:h-0.5 after:bg-gradient-to-r after:from-primary after:to-accent after:transition-all after:duration-300 hover:after:w-full after:rounded-pill">Pricing</a>
-              </nav>
-            </div>
-            <div className="flex items-center gap-6">
-              <div className="flex items-center mr-2 select-none">
-                <div className="relative w-48 h-10 flex items-center bg-gray-200 dark:bg-gray-700 rounded-full transition-colors duration-300 overflow-hidden">
-                  {/* Sliding thumb - always blue, fits exactly half the track */}
-                  <div
-                    className={`absolute top-0 left-0 h-10 w-1/2 rounded-full bg-blue-600 transition-transform duration-300 no-outline
-                      ${mode === 'Smart' ? 'translate-x-full' : 'translate-x-0'}`}
-                    style={{ zIndex: 1 }}
-                  ></div>
-                  {/* Labels */}
-                  <button
-                    type="button"
-                    className={`relative z-10 flex-1 h-10 flex items-center justify-center font-bold text-lg rounded-full transition-colors duration-200 no-outline
-                      ${mode === 'Fresh' ? 'text-white' : 'text-gray-500 dark:text-gray-300'}`}
-                    onClick={() => handleModeChange('Fresh')}
-                    aria-pressed={mode === 'Fresh'}
-                    style={{ background: 'transparent', border: 'none' }}
-                  >
-                    Fresh
-                  </button>
-                  <button
-                    type="button"
-                    className={`relative z-10 flex-1 h-10 flex items-center justify-center font-bold text-lg rounded-full transition-colors duration-200 no-outline
-                      ${mode === 'Smart' ? 'text-white' : 'text-gray-500 dark:text-gray-300'}`}
-                    onClick={() => handleModeChange('Smart')}
-                    aria-pressed={mode === 'Smart'}
-                    style={{ background: 'transparent', border: 'none' }}
-                  >
-                    Smart
-                  </button>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center select-none">
+                  <div className="relative w-40 h-9 flex items-center bg-gray-200 dark:bg-gray-800 rounded-full border border-white/10 dark:border-gray-800 transition-colors duration-300 overflow-hidden">
+                    {/* Sliding thumb - always blue, fits exactly half the track */}
+                    <div
+                      className={`absolute top-0 left-0 h-9 w-1/2 rounded-full bg-blue-600 transition-transform duration-300 no-outline
+                        ${mode === 'Smart' ? 'translate-x-full' : 'translate-x-0'}`}
+                      style={{ zIndex: 1 }}
+                    ></div>
+                    {/* Labels */}
+                    <button
+                      type="button"
+                      className={`relative z-10 flex-1 h-9 flex items-center justify-center font-semibold text-base rounded-full transition-colors duration-200 no-outline
+                        ${mode === 'Fresh' ? 'text-white' : 'text-gray-500 dark:text-gray-300'}`}
+                      onClick={() => handleModeChange('Fresh')}
+                      aria-pressed={mode === 'Fresh'}
+                      style={{ background: 'transparent', border: 'none' }}
+                    >
+                      Fresh
+                    </button>
+                    <button
+                      type="button"
+                      className={`relative z-10 flex-1 h-9 flex items-center justify-center font-semibold text-base rounded-full transition-colors duration-200 no-outline
+                        ${mode === 'Smart' ? 'text-white' : 'text-gray-500 dark:text-gray-300'}`}
+                      onClick={() => handleModeChange('Smart')}
+                      aria-pressed={mode === 'Smart'}
+                      style={{ background: 'transparent', border: 'none' }}
+                    >
+                      Smart
+                    </button>
+                  </div>
                 </div>
+                {user ? (
+                  <div className="relative">
+                    <button
+                      className="inline-flex items-center justify-center h-9 w-9 rounded-full bg-gradient-to-tr from-primary to-accent text-white font-bold text-base shadow-md focus:outline-none focus:ring-2 focus:ring-primary/40 border border-white/10 dark:border-gray-800"
+                      onClick={() => setDropdownOpen(o => !o)}
+                      aria-label="Open profile menu"
+                    >
+                      <FiUser className="w-5 h-5" />
+                    </button>
+                    <ProfileDropdown
+                      open={dropdownOpen}
+                      onClose={() => setDropdownOpen(false)}
+                      user={user}
+                      onReadingList={() => { setDropdownOpen(false); window.location.href = '/reading-list'; }}
+                      onDeleteData={() => { setDropdownOpen(false); setShowDeleteModal(true); }}
+                      onLogout={async () => { setDropdownOpen(false); await supabase.auth.signOut(); window.location.href = '/'; }}
+                      onRevokeConsent={handleRevokeConsent}
+                      smartModeEnabled={smartModeEnabled}
+                      mode={mode}
+                    />
+                  </div>
+                ) : (
+                  <button className="ml-2 px-5 py-2 rounded-xl bg-gradient-to-tr from-primary to-accent text-white font-semibold shadow-lg hover:scale-105 active:scale-95 transition-all flex items-center gap-2 text-base" onClick={() => setShowLogin(true)}>
+                    <FiLogIn className="w-5 h-5" />
+                    Login
+                  </button>
+                )}
               </div>
-              {user ? (
-                <div className="relative">
-                  <button
-                    className="inline-flex items-center justify-center h-10 w-10 rounded-full bg-gradient-to-tr from-primary to-accent text-white font-bold text-lg shadow-md focus:outline-none focus:ring-2 focus:ring-primary/40"
-                    onClick={() => setDropdownOpen(o => !o)}
-                    aria-label="Open profile menu"
-                  >
-                    <FiUser className="w-6 h-6" />
-                  </button>
-                  <ProfileDropdown
-                    open={dropdownOpen}
-                    onClose={() => setDropdownOpen(false)}
-                    user={user}
-                    onReadingList={() => { setDropdownOpen(false); window.location.href = '/reading-list'; }}
-                    onDeleteData={() => { setDropdownOpen(false); setShowDeleteModal(true); }}
-                    onLogout={async () => { setDropdownOpen(false); await supabase.auth.signOut(); window.location.href = '/'; }}
-                    onRevokeConsent={handleRevokeConsent}
-                    smartModeEnabled={smartModeEnabled}
-                    mode={mode}
-                  />
-                </div>
-              ) : (
-                <button className="ml-2 px-6 py-2 rounded-xl bg-gradient-to-tr from-primary to-accent text-white font-semibold shadow-lg hover:scale-105 active:scale-95 transition-all flex items-center gap-2 text-lg" onClick={() => setShowLogin(true)}>
-                  <FiLogIn className="w-6 h-6" />
-                  Login
-                </button>
-              )}
-            </div>
-          </header>
-          <div>{children}</div>
-          <AuthModal
-            open={showLogin}
-            onClose={() => setShowLogin(false)}
-            email={email}
-            setEmail={setEmail}
-            error={authError}
-            loading={authModalLoading}
-            onSendMagicLink={onSendMagicLink}
-          />
-          <SmartModeConsentModal
-            open={showSmartConsent}
-            onClose={() => setShowSmartConsent(false)}
-            onEnable={handleEnableSmartMode}
-            loading={smartConsentLoading}
-          />
-          <DeleteDataModal
-            open={showDeleteModal}
-            loading={deleteLoading}
-            error={deleteError}
-            onClose={() => { if (!deleteLoading) setShowDeleteModal(false); setDeleteError(''); }}
-            onDelete={async () => {
-              setDeleteLoading(true);
-              setDeleteError('');
-              try {
-                const userId = user?.id;
-                if (!userId) throw new Error('No user');
-                await deleteUserInteractions(userId);
-                await deleteSmartPromptEmbeddings(userId);
-                await deleteSmartDiscoverySessions(userId);
-                await deleteSmartDiscoveryProfile(userId);
-                await deletePrivacyConsents(userId);
-                await deleteUserProfile(userId);
-                setShowDeleteModal(false);
-                setDeleteLoading(false);
-                await supabase.auth.signOut();
-                window.location.href = '/';
-              } catch (err: any) {
-                setDeleteError('Failed to delete all data. Please try again.');
-                setDeleteLoading(false);
-              }
-            }}
-          />
-        </ModeContext.Provider>
+            </header>
+            <ErrorBoundary>
+              <div>{children}</div>
+            </ErrorBoundary>
+            <ErrorBoundary>
+              <AuthModal
+                open={showLogin}
+                onClose={() => setShowLogin(false)}
+                email={email}
+                setEmail={setEmail}
+                error={authError}
+                loading={authModalLoading}
+                onSendMagicLink={onSendMagicLink}
+              />
+            </ErrorBoundary>
+            <ErrorBoundary>
+              <SmartModeConsentModal
+                open={showSmartConsent}
+                onClose={() => setShowSmartConsent(false)}
+                onEnable={handleEnableSmartMode}
+                loading={smartConsentLoading}
+              />
+            </ErrorBoundary>
+            <ErrorBoundary>
+              <DeleteDataModal
+                open={showDeleteModal}
+                loading={deleteLoading}
+                error={deleteError}
+                onClose={() => { if (!deleteLoading) setShowDeleteModal(false); setDeleteError(''); }}
+                onDelete={async () => {
+                  setDeleteLoading(true);
+                  setDeleteError('');
+                  try {
+                    const userId = user?.id;
+                    if (!userId) throw new Error('No user');
+                    await deleteUserInteractions(userId);
+                    await deleteSmartPromptEmbeddings(userId);
+                    await deleteSmartDiscoverySessions(userId);
+                    await deleteSmartDiscoveryProfile(userId);
+                    await deletePrivacyConsents(userId);
+                    await deleteUserProfile(userId);
+                    setShowDeleteModal(false);
+                    setDeleteLoading(false);
+                    await supabase.auth.signOut();
+                    window.location.href = '/';
+                  } catch (err: any) {
+                    setDeleteError('Failed to delete all data. Please try again.');
+                    setDeleteLoading(false);
+                  }
+                }}
+              />
+            </ErrorBoundary>
+            </ErrorBoundary>
+            </TrackingProvider>
+          </ModeContext.Provider>
         </AuthContext.Provider>
       </body>
     </html>

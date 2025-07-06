@@ -1,7 +1,8 @@
 'use client';
 import React, { useEffect, useState, useContext } from 'react';
 import { supabase } from '../../../lib/supabase';
-import { AuthContext, ModeContext } from '../layout';
+import { AuthContext } from '../layout';
+import { useTracking } from '../contexts/TrackingContext';
 import BookCard from '../components/BookCard';
 import BookModal from '../components/BookModal';
 import { useRouter } from 'next/navigation';
@@ -12,7 +13,7 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 const ReadingListPage: React.FC = () => {
   const { user, loading } = useContext(AuthContext);
-  const { mode } = useContext(ModeContext);
+  const { currentMode } = useTracking();
   const [books, setBooks] = useState<any[]>([]);
   const [lastFetched, setLastFetched] = useState<number | null>(null);
   const [loadingBooks, setLoadingBooks] = useState(true);
@@ -102,7 +103,7 @@ const ReadingListPage: React.FC = () => {
           </button>
           <span className="text-2xl font-extrabold text-white/90 ml-1 tracking-tight">My Reading List</span>
           <div className="ml-auto flex items-center gap-3">
-            {mode === 'Fresh' && (
+            {currentMode === 'Fresh' && (
               <span className="px-3 py-1 rounded-full bg-yellow-500/20 text-yellow-400 text-xs font-medium border border-yellow-500/30">
                 Fresh Mode
               </span>
@@ -133,24 +134,24 @@ const ReadingListPage: React.FC = () => {
             </span>
             <div className="text-2xl font-bold text-white/90">Start your reading list!</div>
             <div className="text-base text-white/60 max-w-xs text-center">
-              {mode === 'Smart' 
+              {currentMode === 'Smart' 
                 ? "Save books in Smart Mode to see them here. Ready to discover your next favorite?"
                 : "Switch to Smart Mode to save books and build your reading list."
               }
             </div>
-            <button
-              className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-tr from-primary to-accent text-white font-semibold shadow hover:scale-105 active:scale-95 transition-all text-lg mt-2"
-              onClick={() => router.push('/')}
-            >
-              <FiBookOpen className="w-5 h-5" /> 
-              {mode === 'Smart' ? 'Discover Books' : 'Switch to Smart Mode'}
-            </button>
+                          <button
+                className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-tr from-primary to-accent text-white font-semibold shadow hover:scale-105 active:scale-95 transition-all text-lg mt-2"
+                onClick={() => router.push('/')}
+              >
+                <FiBookOpen className="w-5 h-5" /> 
+                {currentMode === 'Smart' ? 'Discover Books' : 'Switch to Smart Mode'}
+              </button>
           </div>
         ) : showError ? (
           <div className="text-center text-red-400 py-8">{error}</div>
         ) : (
           <>
-            {mode === 'Fresh' && books.length > 0 && (
+            {currentMode === 'Fresh' && books.length > 0 && (
               <div className="mb-6 p-4 bg-primary/10 rounded-xl border border-primary/20">
                 <div className="text-sm text-primary font-medium mb-1">Viewing previously saved books</div>
                 <div className="text-xs text-white/60">Switch to Smart Mode to add new books and get personalized recommendations</div>

@@ -1,0 +1,23 @@
+-- Book content embedding
+ALTER TABLE public.book_index
+ALTER COLUMN content_embedding TYPE VECTOR(1536);
+
+-- Book genre embedding (if you use it for similarity)
+ALTER TABLE public.book_index
+ALTER COLUMN genre_embedding TYPE VECTOR(1536);
+
+-- User profile embedding
+ALTER TABLE public.user_profiles
+ALTER COLUMN user_embedding TYPE VECTOR(1536);
+
+-- User learning profile embedding
+ALTER TABLE public.smart_discovery_profiles
+ALTER COLUMN user_embedding TYPE VECTOR(1536);
+
+-- Per-interaction embedding
+ALTER TABLE public.user_interactions
+ALTER COLUMN interaction_embedding TYPE VECTOR(1536);
+
+-- Prompt embedding (already 1536, included for completeness)
+-- ALTER TABLE public.smart_prompt_embeddings
+-- ALTER COLUMN embedding_vector TYPE VECTOR(1536);

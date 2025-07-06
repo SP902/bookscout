@@ -2,19 +2,39 @@ import { Book } from '../types';
 import { fetchBooksFromGoogle } from './google-books';
 import { getEmbedding, cosineSimilarity } from './embedding';
 import { extractThemes } from './theme-extract';
+import type { UserPreferences } from '../recommendation';
+import { calculateHybridBookScore } from '../recommendation';
+
+// Re-export for direct access
+export { fetchBooksFromGoogle } from './google-books';
+
+// Rank books by user history/preferences using weighted scoring
+export function rankBooksByUserHistory(books: Book[], userPreferences?: UserPreferences): Book[] {
+  if (!userPreferences) return books;
+  return books
+    .map(book => ({
+      book,
+      score: calculateHybridBookScore(book as any, userPreferences) // Book needs to be cast for hybrid scoring
+    }))
+    .sort((a, b) => b.score - a.score)
+    .map(r => r.book);
+}
 
 // In the future, add more sources here
-export async function fetchBooksAggregated(query: string): Promise<Book[]> {
+export async function fetchBooksAggregated(query: string, userPreferences?: UserPreferences, mode: 'Fresh' | 'Smart' = 'Fresh'): Promise<Book[]> {
   // For now, only Google Books
-  const googleBooks = await fetchBooksFromGoogle(query);
+  const googleBooks = await fetchBooksFromGoogle(query, mode);
   // You could merge/deduplicate results from multiple sources here
+  if (userPreferences) {
+    return rankBooksByUserHistory(googleBooks, userPreferences);
+  }
   return googleBooks;
 }
 
 // Hybrid search: fetch books, rank by embedding similarity, extract themes if needed
 export async function fetchAndRankBooksWithEmbeddings(prompt: string, mode: 'Fresh' | 'Smart') {
   // 1. Extract keywords and fetch books
-  const books = await fetchBooksFromGoogle(prompt);
+  const books = await fetchBooksFromGoogle(prompt, mode);
   if (!books.length) return { books: [], promptEmbedding: [], themes: '' };
 
   // 2. Generate embedding for user prompt

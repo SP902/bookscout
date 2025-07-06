@@ -43,16 +43,77 @@ function extractKeywords(query: string): string {
     .join(' ');
 }
 
+// AI-powered keyword extraction for Smart Mode
+async function extractKeywordsWithAI(userPrompt: string): Promise<string> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    console.error('OPENAI_API_KEY is not set');
+    return extractKeywords(userPrompt); // Fallback to basic extraction
+  }
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [{
+          role: 'system',
+          content: 'Convert natural language book requests into optimal Google Books API search terms. Extract genres, themes, keywords, authors. Return only search keywords.'
+        }, {
+          role: 'user',
+          content: userPrompt
+        }],
+        max_tokens: 40,
+        temperature: 0.2
+      }),
+    });
+
+    if (!response.ok) {
+      console.error('OpenAI API error:', response.status, response.statusText);
+      return extractKeywords(userPrompt); // Fallback to basic extraction
+    }
+
+    const data = await response.json();
+    const aiKeywords = data.choices?.[0]?.message?.content?.trim();
+    
+    if (aiKeywords) {
+      return aiKeywords;
+    } else {
+      return extractKeywords(userPrompt); // Fallback to basic extraction
+    }
+  } catch (err) {
+    console.error('Error calling OpenAI for keyword extraction:', err);
+    return extractKeywords(userPrompt); // Fallback to basic extraction
+  }
+}
+
 // Fetch books from Google Books API and map to Book[]
-export async function fetchBooksFromGoogle(query: string): Promise<Book[]> {
+export async function fetchBooksFromGoogle(query: string, mode: 'Fresh' | 'Smart' = 'Fresh'): Promise<Book[]> {
   try {
     const apiKey = process.env.GOOGLE_BOOKS_API_KEY;
     if (!apiKey) {
       console.error('GOOGLE_BOOKS_API_KEY is not set');
       return [];
     }
-    const keywords = extractKeywords(query);
-    const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(keywords)}&maxResults=10&key=${apiKey}`;
+
+    // Use AI-powered keyword extraction for Smart Mode, basic extraction for Fresh Mode
+    const keywords = mode === 'Smart' 
+      ? await extractKeywordsWithAI(query)
+      : extractKeywords(query);
+
+    // Use updated params for Google Books API
+    const params = new URLSearchParams({
+      q: keywords,
+      maxResults: '40',
+      orderBy: 'relevance',
+      printType: 'books',
+      key: apiKey,
+    });
+    const url = `https://www.googleapis.com/books/v1/volumes?${params.toString()}`;
     const res = await fetch(url);
     if (!res.ok) {
       // Handle rate limits or errors

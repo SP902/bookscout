@@ -1,6 +1,6 @@
 import React, { useContext } from 'react';
 import { FiLogOut, FiTrash2, FiBookOpen, FiUser, FiToggleLeft } from 'react-icons/fi';
-import { ModeContext } from '../layout';
+import { useTracking } from '../contexts/TrackingContext';
 
 interface ProfileDropdownProps {
   open: boolean;
@@ -15,7 +15,7 @@ interface ProfileDropdownProps {
 }
 
 const ProfileDropdown: React.FC<ProfileDropdownProps> = ({ open, onClose, user, onReadingList, onDeleteData, onLogout, onRevokeConsent, smartModeEnabled, mode }) => {
-  const { mode: currentMode } = useContext(ModeContext);
+  const { currentMode } = useTracking();
   const ref = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
@@ -50,12 +50,6 @@ const ProfileDropdown: React.FC<ProfileDropdownProps> = ({ open, onClose, user, 
             </span>
           </span>
         </button>
-        {mode === 'Smart' && smartModeEnabled && (
-          <button onClick={() => { onRevokeConsent(); onClose(); }} className="flex items-center gap-3 px-4 py-2 text-left text-yellow-500 hover:bg-yellow-100/10 dark:hover:bg-yellow-900/20 transition-colors text-sm font-medium">
-            <FiToggleLeft className="w-4 h-4 text-yellow-500" />
-            <span className="leading-tight">Disable Smart Mode</span>
-          </button>
-        )}
         <button onClick={() => { onDeleteData(); onClose(); }} className="flex items-center gap-3 px-4 py-2 text-left text-orange-400 hover:bg-orange-100/10 dark:hover:bg-orange-900/20 transition-colors text-sm font-medium">
           <FiTrash2 className="w-4 h-4 text-orange-400" />
           <span className="leading-tight">Delete All Data</span>

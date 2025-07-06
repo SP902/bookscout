@@ -1,0 +1,14 @@
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.table_constraints
+        WHERE constraint_name = 'fk_user_interactions_book_isbn'
+          AND table_name = 'user_interactions'
+    ) THEN
+        ALTER TABLE public.user_interactions
+        ADD CONSTRAINT fk_user_interactions_book_isbn
+        FOREIGN KEY (book_isbn)
+        REFERENCES public.book_index(isbn_13);
+    END IF;
+END$$;

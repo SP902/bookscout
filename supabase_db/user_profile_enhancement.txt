@@ -1,0 +1,11 @@
+-- Add top_categories as a text array (or use JSONB if you prefer)
+ALTER TABLE public.user_profiles
+ADD COLUMN IF NOT EXISTS top_categories TEXT[];
+
+-- Add top_tags as a text array (or use JSONB if you prefer)
+ALTER TABLE public.user_profiles
+ADD COLUMN IF NOT EXISTS top_tags TEXT[];
+
+-- Add user_embedding as a vector (assuming pgvector extension is enabled and 768-dim for OpenAI/MPNet)
+ALTER TABLE public.user_profiles
+ADD COLUMN IF NOT EXISTS user_embedding VECTOR(768);

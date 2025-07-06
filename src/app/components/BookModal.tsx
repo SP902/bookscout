@@ -1,6 +1,7 @@
-import React, { useContext, useEffect, useState } from 'react';
+import React, { useContext, useEffect, useState, useCallback } from 'react';
 import type { Book } from '../../../lib/types';
-import { AuthContext, ModeContext } from '../layout';
+import { AuthContext } from '../layout';
+import { useTracking } from '../contexts/TrackingContext';
 import { FiBookmark } from 'react-icons/fi';
 import { LuSparkles, LuEyeOff } from 'react-icons/lu';
 
@@ -15,20 +16,12 @@ interface BookModalProps {
 
 const BookModal: React.FC<BookModalProps> = ({ open, book, onClose, positionInResults, sessionId, discoveryContext }) => {
   const { user } = useContext(AuthContext);
-  const { mode } = useContext(ModeContext);
+  const { currentMode, shouldEnableTracking } = useTracking();
   const [buttonState, setButtonState] = useState<{ [key: string]: 'idle' | 'loading' | 'success' | 'error' }>({});
   const [showToast, setShowToast] = useState<string | null>(null);
 
-  // Track modal open as 'clicked' interaction
-  useEffect(() => {
-    if (open && user && book) {
-      trackInteraction('clicked', book);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, user, book]);
-
-  async function trackInteraction(interactionType: string, book: Book) {
-    if (!user || mode !== 'Smart') return;
+  const trackInteraction = useCallback(async (interactionType: string, book: Book) => {
+    if (!user || currentMode !== 'Smart') return;
     setButtonState(s => ({ ...s, [interactionType]: 'loading' }));
     try {
       const res = await fetch('/api/track-interaction', {
@@ -42,6 +35,7 @@ const BookModal: React.FC<BookModalProps> = ({ open, book, onClose, positionInRe
           position_in_results: typeof positionInResults === 'number' ? positionInResults : undefined,
           session_id: sessionId,
           discovery_context: discoveryContext,
+          currentMode: currentMode,
         }),
       });
       const data = await res.json();
@@ -64,7 +58,14 @@ const BookModal: React.FC<BookModalProps> = ({ open, book, onClose, positionInRe
       setTimeout(() => setShowToast(null), 2000);
       setTimeout(() => setButtonState(s => ({ ...s, [interactionType]: 'idle' })), 2000);
     }
-  }
+  }, [user, currentMode, positionInResults, sessionId, discoveryContext]);
+
+  // Track modal open as 'clicked' interaction
+  useEffect(() => {
+    if (open && user && book) {
+      trackInteraction('clicked', book);
+    }
+  }, [open, user, book, trackInteraction]);
 
   // Button config
   const buttons = [
@@ -133,7 +134,7 @@ const BookModal: React.FC<BookModalProps> = ({ open, book, onClose, positionInRe
           ))}
         </div>
         {/* Subtle inline interaction buttons for Smart mode only */}
-        {user && mode === 'Smart' && (
+        {user && currentMode === 'Smart' && (
           <div className="flex flex-row gap-2 mt-2 justify-end items-center">
             {buttons.map(btn => (
               <button
@@ -159,7 +160,7 @@ const BookModal: React.FC<BookModalProps> = ({ open, book, onClose, positionInRe
           </div>
         )}
         {/* Show mode switch prompt for logged-in users in Fresh mode */}
-        {user && mode === 'Fresh' && (
+        {user && currentMode === 'Fresh' && (
           <div className="text-center mt-4 p-3 bg-primary/10 rounded-lg border border-primary/20">
             <div className="text-sm text-primary font-medium mb-1">Switch to Smart Mode</div>
             <div className="text-xs text-white/60">Save books and get personalized recommendations</div>
