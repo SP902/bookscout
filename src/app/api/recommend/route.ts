@@ -5,6 +5,17 @@ import { analyzeUserPreferences, calculateHybridBookScore } from '../../../../li
 import { toBook, type BookIndex } from '../../../../lib/types';
 import crypto from 'crypto';
 
+// Utility to clean greetings and 'BookScout' from prompt
+function cleanPrompt(input: string): string {
+  return input
+    .replace(/^(hey|hi|hello|yo|greetings)[,\s]+/i, '')
+    .replace(/bookscout[,!\s]*/gi, '')
+    .replace(/^get me[,\s]*/i, '')
+    .replace(/^can you[,\s]*/i, '')
+    .replace(/^please[,\s]*/i, '')
+    .trim();
+}
+
 async function getOpenAIResponse({ mode, books, prompt, themes, userPreferences }: { mode: string, books: any[], prompt: string, themes?: string, userPreferences?: any }) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return '[AI unavailable: missing API key]';
@@ -47,10 +58,11 @@ async function getOpenAIResponse({ mode, books, prompt, themes, userPreferences 
 }
 
 export async function POST(req: NextRequest) {
-  const { prompt, mode, userId } = await req.json();
+  let { prompt, mode, userId } = await req.json();
   if (!prompt || typeof prompt !== 'string' || !mode) {
     return NextResponse.json({ error: 'Prompt and mode required.' }, { status: 400 });
   }
+  prompt = cleanPrompt(prompt);
 
   let books: any[] = [];
   let promptEmbedding: number[] = [];

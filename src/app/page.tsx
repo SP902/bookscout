@@ -1,5 +1,5 @@
 'use client';
-import { FC, useState, useContext } from 'react';
+import { FC, useState, useContext, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { AuthContext } from './layout';
 import { useTracking } from './contexts/TrackingContext';
@@ -18,14 +18,86 @@ const Home: FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
 
+  const PLACEHOLDER_PREFIX = "Hey BookScout, get me ";
+  const examplePlaceholders = [
+    "an epic fantasy with dragons",
+    "a cozy mystery set in a small town",
+    "books about AI and the future",
+    "a romantic comedy with witty banter",
+    "nonfiction about space exploration",
+    "an award-winning historical fiction",
+    "short stories for busy people",
+    "a thriller with an unreliable narrator",
+    "an inspiring memoir by a woman leader"
+  ];
+  const [phase, setPhase] = useState<'typing' | 'pausing' | 'deleting'>('typing');
+  const [typed, setTyped] = useState('');
+  const [placeholderIndex, setPlaceholderIndex] = useState(0);
+  const [charIndex, setCharIndex] = useState(0);
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
+    const example = examplePlaceholders[placeholderIndex];
+
+    if (phase === 'typing') {
+      if (charIndex < example.length) {
+        interval = setInterval(() => {
+          setTyped(example.slice(0, charIndex + 1));
+          setCharIndex((c) => c + 1);
+        }, 40);
+      } else {
+        setPhase('pausing');
+      }
+    } else if (phase === 'deleting') {
+      if (charIndex > 0) {
+        interval = setInterval(() => {
+          setTyped(example.slice(0, charIndex - 1));
+          setCharIndex((c) => c - 1);
+        }, 20);
+      } else {
+        setPhase('typing');
+        setPlaceholderIndex((i) => (i + 1) % examplePlaceholders.length);
+      }
+    } else if (phase === 'pausing') {
+      interval = setTimeout(() => {
+        setPhase(charIndex === example.length ? 'deleting' : 'typing');
+      }, 1200) as unknown as NodeJS.Timeout;
+    }
+
+    return () => {
+      if (interval) clearInterval(interval);
+      if (interval) clearTimeout(interval);
+    };
+  }, [phase, charIndex, placeholderIndex]);
+
+  // Reset charIndex and typed when placeholderIndex or phase changes to typing
+  useEffect(() => {
+    if (phase === 'typing') {
+      setCharIndex(0);
+      setTyped('');
+    }
+  }, [placeholderIndex, phase]);
+
   const triggerLoginModal = () => {
     const event = new CustomEvent('open-login-modal');
     window.dispatchEvent(event);
   };
 
+  // Utility to clean greetings and 'BookScout' from prompt
+  function cleanPrompt(input: string): string {
+    return input
+      .replace(/^(hey|hi|hello|yo|greetings)[,\s]+/i, '')
+      .replace(/bookscout[,!\s]*/gi, '')
+      .replace(/^get me[,\s]*/i, '')
+      .replace(/^can you[,\s]*/i, '')
+      .replace(/^please[,\s]*/i, '')
+      .trim();
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!prompt.trim()) {
+    const cleanedPrompt = cleanPrompt(prompt);
+    if (!cleanedPrompt.trim()) {
       setError('Please enter a book prompt.');
       return;
     }
@@ -38,7 +110,7 @@ const Home: FC = () => {
         const res = await fetch('/api/recommend', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt, mode: 'Fresh' }),
+          body: JSON.stringify({ prompt: cleanedPrompt, mode: 'Fresh' }),
         });
         const data = await res.json();
         setResults(data);
@@ -53,7 +125,7 @@ const Home: FC = () => {
         setIsLoading(false);
         return;
       }
-      router.push(`/results?q=${encodeURIComponent(prompt)}`);
+      router.push(`/results?q=${encodeURIComponent(cleanedPrompt)}`);
       setPrompt('');
     }
     setIsLoading(false);
@@ -99,7 +171,7 @@ const Home: FC = () => {
                 <FiSearch className="w-5 h-5 text-primary/80 flex-shrink-0" />
                 <input
                   type="text"
-                  placeholder="What kind of book are you looking for?"
+                  placeholder={PLACEHOLDER_PREFIX + typed}
                   className="flex-1 bg-transparent border-none outline-none text-base placeholder:text-white/50 focus:ring-0 focus:border-none focus:outline-none ring-0 border-none outline-none no-outline"
                   value={prompt}
                   onChange={e => setPrompt(e.target.value)}
@@ -162,7 +234,7 @@ const Home: FC = () => {
           </div>
         )}
       </section>
-    </main>
+      </main>
   );
 };
 
